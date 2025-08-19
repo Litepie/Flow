@@ -1,0 +1,680 @@
+=== composer.json (UPDATED) ===
+{
+    "name": "litepie/flow",
+    "description": "A powerful Laravel package for workflow management with states and transitions",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["laravel", "workflow", "states", "transitions", "state-machine"],
+    "homepage": "https://github.com/litepie/flow",
+    "authors": [
+        {
+            "name": "Litepie Team",
+            "email": "team@litepie.com",
+            "homepage": "https://litepie.com"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "illuminate/support": "^10.0|^11.0",
+        "illuminate/database": "^10.0|^11.0",
+        "illuminate/events": "^10.0|^11.0",
+        "illuminate/contracts": "^10.0|^11.0",
+        "litepie/actions": "^1.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0",
+        "orchestra/testbench": "^8.0|^9.0",
+        "mockery/mockery": "^1.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "Litepie\\Flow\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Litepie\\Flow\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Litepie\\Flow\\FlowServiceProvider"
+            ],
+            "aliases": {
+                "Flow": "Litepie\\Flow\\Facades\\Flow"
+            }
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test-coverage": "phpunit --coverage-html coverage"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "composer/package-versions-deprecated": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
+
+=== src/FlowServiceProvider.php (UPDATED) ===
+<?php
+
+namespace Litepie\Flow;
+
+use Illuminate\Support\ServiceProvider;
+use Litepie\Flow\Contracts\WorkflowManagerContract;
+use Litepie\Flow\Contracts\StateManagerContract;
+use Litepie\Flow\Workflows\WorkflowManager;
+use Litepie\Flow\States\StateManager;
+
+class FlowServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this->mergeConfigFrom(__DIR__ . '/../config/flow.php', 'flow');
+
+        $this->app->singleton(WorkflowManagerContract::class, WorkflowManager::class);
+        $this->app->singleton(StateManagerContract::class, StateManager::class);
+        
+        $this->app->alias(WorkflowManagerContract::class, 'flow.workflows');
+        $this->app->alias(StateManagerContract::class, 'flow.states');
+    }
+
+    public function boot(): void
+    {
+        if ($this->app->runningInConsole()) {
+            $this->publishes([
+                __DIR__ . '/../config/flow.php' => config_path('flow.php'),
+            ], 'flow-config');
+
+            $this->publishes([
+                __DIR__ . '/../database/migrations' => database_path('migrations'),
+            ], 'flow-migrations');
+        }
+
+        $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+        
+        $this->registerWorkflows();
+    }
+
+    protected function registerWorkflows(): void
+    {
+        $workflows = config('flow.workflows', []);
+        $workflowManager = $this->app->make(WorkflowManagerContract::class);
+
+        foreach ($workflows as $name => $config) {
+            if (isset($config['class'])) {
+                $method = $config['method'] ?? 'create';
+                $workflow = $config['class']::$method($config);
+                $workflowManager->register($name, $workflow);
+            }
+        }
+    }
+}
+
+=== src/Contracts/ (UPDATED - Remove Action Contracts) ===
+Only keep:
+- StateManagerContract.php
+- Workflowable.php  
+- WorkflowManagerContract.php
+
+Remove:
+- ActionContract.php
+- ActionManagerContract.php
+- ActionResult.php
+
+=== src/Contracts/StateManagerContract.php ===
+<?php
+
+namespace Litepie\Flow\Contracts;
+
+use Litepie\Flow\States\State;
+
+interface StateManagerContract
+{
+    public function create(string $name, array $config = []): State;
+    public function get(string $name): State;
+    public function has(string $name): bool;
+    public function all(): array;
+    public function register(string $name, State $state): void;
+}
+
+=== src/Contracts/WorkflowManagerContract.php ===
+<?php
+
+namespace Litepie\Flow\Contracts;
+
+use Litepie\Flow\Workflows\Workflow;
+
+interface WorkflowManagerContract
+{
+    public function create(string $name, array $config = []): Workflow;
+    public function get(string $name): Workflow;
+    public function has(string $name): bool;
+    public function all(): array;
+    public function register(string $name, Workflow $workflow): void;
+}
+
+=== src/Contracts/Workflowable.php ===
+<?php
+
+namespace Litepie\Flow\Contracts;
+
+use Litepie\Flow\States\State;
+
+interface Workflowable
+{
+    public function getCurrentState(): ?State;
+    public function canTransitionTo(string $state): bool;
+    public function transitionTo(string $state, array $context = []): bool;
+    public function getAvailableTransitions(): array;
+    public function getWorkflowName(): string;
+}
+
+=== src/Transitions/Transition.php (UPDATED) ===
+<?php
+
+namespace Litepie\Flow\Transitions;
+
+use Litepie\Actions\Contracts\ActionContract;
+use Closure;
+
+class Transition
+{
+    protected array $guards = [];
+    protected array $actions = [];
+    protected array $metadata = [];
+
+    public function __construct(
+        protected string $from,
+        protected string $to,
+        protected string $event,
+        protected string $label = ''
+    ) {
+        $this->label = $label ?: "{$this->from} → {$this->to}";
+    }
+
+    public function getFrom(): string
+    {
+        return $this->from;
+    }
+
+    public function getTo(): string
+    {
+        return $this->to;
+    }
+
+    public function getEvent(): string
+    {
+        return $this->event;
+    }
+
+    public function getLabel(): string
+    {
+        return $this->label;
+    }
+
+    public function addGuard(Closure|string $guard): self
+    {
+        $this->guards[] = $guard;
+        return $this;
+    }
+
+    public function addAction(ActionContract|string $action): self
+    {
+        $this->actions[] = $action;
+        return $this;
+    }
+
+    public function canTransition(array $context = []): bool
+    {
+        foreach ($this->guards as $guard) {
+            if (is_string($guard)) {
+                // Handle string guard (class name)
+                $guardInstance = app($guard);
+                if (!$guardInstance($context)) {
+                    return false;
+                }
+            } elseif ($guard instanceof Closure) {
+                if (!$guard($context)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public function executeActions(array $context = []): array
+    {
+        $results = [];
+
+        foreach ($this->actions as $action) {
+            if (is_string($action)) {
+                $action = app($action);
+            }
+
+            if ($action instanceof ActionContract) {
+                $results[] = $action->execute($context);
+            }
+        }
+
+        return $results;
+    }
+
+    public function setMetadata(string $key, $value): self
+    {
+        $this->metadata[$key] = $value;
+        return $this;
+    }
+
+    public function getMetadata(string $key = null)
+    {
+        return $key ? ($this->metadata[$key] ?? null) : $this->metadata;
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'from' => $this->from,
+            'to' => $this->to,
+            'event' => $this->event,
+            'label' => $this->label,
+            'metadata' => $this->metadata
+        ];
+    }
+}
+
+=== src/Events/WorkflowTransitioned.php ===
+<?php
+
+namespace Litepie\Flow\Events;
+
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+use Litepie\Flow\Contracts\Workflowable;
+
+class WorkflowTransitioned
+{
+    use Dispatchable, SerializesModels;
+
+    public function __construct(
+        public Workflowable $model,
+        public string $fromState,
+        public string $toState,
+        public array $context = []
+    ) {}
+}
+
+=== config/flow.php (UPDATED) ===
+<?php
+
+return [
+    /*
+    |--------------------------------------------------------------------------
+    | Default Workflow Configuration
+    |--------------------------------------------------------------------------
+    |
+    | This option controls the default workflow configuration for the Flow
+    | package. You can configure default behaviors and settings here.
+    |
+    */
+    'default_workflow' => env('FLOW_DEFAULT_WORKFLOW', null),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Workflow Storage
+    |--------------------------------------------------------------------------
+    |
+    | Configure how workflows and their states are stored. You can choose
+    | between database storage or file-based configurations.
+    |
+    */
+    'storage' => [
+        'driver' => env('FLOW_STORAGE_DRIVER', 'database'),
+        'table_prefix' => env('FLOW_TABLE_PREFIX', 'flow_'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Event Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configure event handling for workflow transitions.
+    |
+    */
+    'events' => [
+        'enabled' => env('FLOW_EVENTS_ENABLED', true),
+        'queue' => env('FLOW_EVENTS_QUEUE', null),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Registered Workflows
+    |--------------------------------------------------------------------------
+    |
+    | Register your workflows here. Each workflow should have a unique name
+    | and can include configuration for states, transitions, and actions.
+    |
+    */
+    'workflows' => [
+        // Example workflow configuration
+        // 'order_processing' => [
+        //     'class' => App\Workflows\OrderProcessingWorkflow::class,
+        //     'states' => [
+        //         'pending' => ['label' => 'Pending', 'initial' => true],
+        //         'processing' => ['label' => 'Processing'],
+        //         'shipped' => ['label' => 'Shipped'],
+        //         'delivered' => ['label' => 'Delivered', 'final' => true],
+        //     ],
+        //     'transitions' => [
+        //         ['from' => 'pending', 'to' => 'processing', 'event' => 'process'],
+        //         ['from' => 'processing', 'to' => 'shipped', 'event' => 'ship'],
+        //         ['from' => 'shipped', 'to' => 'delivered', 'event' => 'deliver'],
+        //     ],
+        // ],
+    ],
+];
+
+=== README.md (UPDATED) ===
+# Laravel Flow
+
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/litepie/flow.svg?style=flat-square)](https://packagist.org/packages/litepie/flow)
+[![Total Downloads](https://img.shields.io/packagist/dt/litepie/flow.svg?style=flat-square)](https://packagist.org/packages/litepie/flow)
+
+A powerful Laravel package for workflow management with states and transitions. Laravel Flow provides a comprehensive solution for building complex business workflows with state management and event-driven transitions.
+
+## Features
+
+- **Workflow Management**: Define complex workflows with states and transitions
+- **State Management**: Track and manage entity states throughout their lifecycle
+- **Event System**: Built-in event handling for workflow transitions
+- **Action Integration**: Seamless integration with the [Litepie Actions](https://github.com/litepie/actions) package
+- **Database Logging**: Track workflow executions and transition history
+- **Laravel Integration**: Seamless integration with Laravel's ecosystem
+
+## Installation
+
+Install the package via Composer:
+
+```bash
+composer require litepie/flow
+```
+
+This will automatically install the required `litepie/actions` dependency.
+
+Publish and run the migrations:
+
+```bash
+php artisan vendor:publish --tag="flow-migrations"
+php artisan migrate
+```
+
+Optionally, publish the configuration file:
+
+```bash
+php artisan vendor:publish --tag="flow-config"
+```
+
+## Quick Start
+
+### 1. Create Actions (using litepie/actions)
+
+```php
+<?php
+
+namespace App\Actions;
+
+use Litepie\Actions\BaseAction;
+use Litepie\Actions\Traits\ValidatesInput;
+use Litepie\Actions\Contracts\ActionResult;
+
+class ProcessPaymentAction extends BaseAction
+{
+    use ValidatesInput;
+
+    protected string $name = 'process_payment';
+
+    public function execute(array $context = []): ActionResult
+    {
+        $validated = $this->validateContext($context);
+
+        // Your payment processing logic here
+        $result = $this->processPayment($validated);
+
+        return $result['success'] 
+            ? $this->success($result, 'Payment processed successfully')
+            : $this->failure($result['errors'], 'Payment processing failed');
+    }
+
+    protected function rules(): array
+    {
+        return [
+            'amount' => 'required|numeric|min:0.01',
+            'payment_method' => 'required|string',
+            'order_id' => 'required|integer|exists:orders,id'
+        ];
+    }
+
+    private function processPayment(array $data): array
+    {
+        // Implement your payment logic
+        return ['success' => true, 'transaction_id' => '12345'];
+    }
+}
+```
+
+### 2. Create a Workflow
+
+```php
+<?php
+
+namespace App\Workflows;
+
+use Litepie\Flow\Workflows\Workflow;
+use Litepie\Flow\States\State;
+use Litepie\Flow\Transitions\Transition;
+
+class OrderWorkflow
+{
+    public static function create(): Workflow
+    {
+        $workflow = new Workflow('order_processing', 'Order Processing Workflow');
+
+        // Define states
+        $pending = new State('pending', 'Pending', true);
+        $processing = new State('processing', 'Processing');
+        $shipped = new State('shipped', 'Shipped');
+        $delivered = new State('delivered', 'Delivered', false, true);
+
+        // Add states to workflow
+        $workflow->addState($pending)
+                 ->addState($processing)
+                 ->addState($shipped)
+                 ->addState($delivered);
+
+        // Define transitions with actions
+        $processTransition = new Transition('pending', 'processing', 'process');
+        $processTransition->addAction(new \App\Actions\ProcessPaymentAction());
+
+        $shipTransition = new Transition('processing', 'shipped', 'ship');
+        $deliverTransition = new Transition('shipped', 'delivered', 'deliver');
+
+        // Add transitions to workflow
+        $workflow->addTransition($processTransition)
+                 ->addTransition($shipTransition)
+                 ->addTransition($deliverTransition);
+
+        return $workflow;
+    }
+}
+```
+
+### 3. Use the HasWorkflow Trait
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Litepie\Flow\Traits\HasWorkflow;
+use Litepie\Flow\Contracts\Workflowable;
+
+class Order extends Model implements Workflowable
+{
+    use HasWorkflow;
+
+    protected $fillable = ['customer_id', 'total', 'state'];
+
+    public function getWorkflowName(): string
+    {
+        return 'order_processing';
+    }
+
+    protected function getWorkflowStateColumn(): string
+    {
+        return 'state';
+    }
+}
+```
+
+### 4. Register Your Workflow
+
+```php
+<?php
+
+namespace App\Providers;
+
+use Illuminate\Support\ServiceProvider;
+use Litepie\Flow\Facades\Flow;
+use App\Workflows\OrderWorkflow;
+
+class WorkflowServiceProvider extends ServiceProvider
+{
+    public function boot(): void
+    {
+        Flow::register('order_processing', OrderWorkflow::create());
+    }
+}
+```
+
+### 5. Use the Workflow
+
+```php
+// Create a new order
+$order = Order::create([
+    'customer_id' => 1,
+    'total' => 99.99,
+    'state' => 'pending'
+]);
+
+// Check available transitions
+$transitions = $order->getAvailableTransitions();
+
+// Transition to the next state
+if ($order->canTransitionTo('processing')) {
+    $order->transitionTo('processing', [
+        'amount' => $order->total,
+        'payment_method' => 'credit_card',
+        'order_id' => $order->id
+    ]);
+}
+
+// Get current state
+$currentState = $order->getCurrentState();
+echo $currentState->getLabel(); // "Processing"
+```
+
+## Dependencies
+
+This package depends on:
+- **[litepie/actions](https://github.com/litepie/actions)** - For action pattern implementation
+
+## Documentation
+
+- [Workflows](docs/workflows.md) - Workflow management guide
+- [Integration](docs/integration.md) - Integration patterns and examples
+
+## Testing
+
+```bash
+composer test
+```
+
+## Contributing
+
+Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+## License
+
+The MIT License (MIT). Please see [LICENSE.md](LICENSE.md) for more information.
+
+=== PACKAGE STRUCTURE (UPDATED) ===
+litepie/flow/
+├── composer.json                    # Updated with litepie/actions dependency
+├── README.md                        # Updated to reference actions package
+├── LICENSE.md
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── config/
+│   └── flow.php                     # Simplified config (no action settings)
+├── database/
+│   └── migrations/                  # Keep workflow-related migrations only
+│       ├── 2024_01_01_000001_create_flow_workflows_table.php
+│       ├── 2024_01_01_000002_create_flow_states_table.php
+│       ├── 2024_01_01_000003_create_flow_transitions_table.php
+│       └── 2024_01_01_000004_create_flow_executions_table.php
+├── docs/
+│   ├── workflows.md                 # Keep workflow docs
+│   └── integration.md               # Updated integration guide
+├── examples/
+│   ├── OrderProcessingExample.php   # Updated to use litepie/actions
+│   └── UsageExamples.php           # Updated examples
+├── src/
+│   ├── Contracts/                   # Remove action-related contracts
+│   │   ├── StateManagerContract.php
+│   │   ├── Workflowable.php
+│   │   └── WorkflowManagerContract.php
+│   ├── Events/
+│   │   └── WorkflowTransitioned.php # Keep workflow events only
+│   ├── Exceptions/                  # Keep workflow exceptions
+│   │   ├── FlowException.php
+│   │   ├── InvalidStateException.php
+│   │   ├── InvalidTransitionException.php
+│   │   ├── StateNotFoundException.php
+│   │   └── WorkflowNotFoundException.php
+│   ├── Facades/
+│   │   └── Flow.php
+│   ├── States/
+│   │   ├── State.php
+│   │   └── StateManager.php
+│   ├── Traits/
+│   │   └── HasWorkflow.php          # Updated to use litepie/actions
+│   ├── Transitions/
+│   │   └── Transition.php           # Updated to use ActionContract from litepie/actions
+│   ├── Workflows/
+│   │   ├── Workflow.php
+│   │   └── WorkflowManager.php
+│   └── FlowServiceProvider.php      # Updated without action manager
+└── tests/                           # Updated tests focusing on workflows
+    ├── Feature/
+    │   └── WorkflowIntegrationTest.php
+    ├── Unit/
+    │   ├── StateTest.php
+    │   ├── TransitionTest.php
+    │   └── WorkflowTest.php
+    └── TestCase.php
+
+FILES TO REMOVE FROM ORIGINAL PACKAGE:
+- src/Actions/ (entire directory)
+- src/Contracts/ActionContract.php
+- src/Contracts/ActionManagerContract.php
+- src/Contracts/ActionResult.php
+- src/Events/ActionExecuted.php
+- docs/actions.md
+- database/migrations/2024_01_01_000005_create_flow_action_logs_table.php
