@@ -1,18 +1,21 @@
-# Laravel Flow
+# Litepie Flow
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/litepie/flow.svg?style=flat-square)](https://packagist.org/packages/litepie/flow)
 [![Total Downloads](https://img.shields.io/packagist/dt/litepie/flow.svg?style=flat-square)](https://packagist.org/packages/litepie/flow)
+[![License](https://img.shields.io/packagist/l/litepie/flow.svg?style=flat-square)](https://packagist.org/packages/litepie/flow)
+[![Laravel](https://img.shields.io/badge/Laravel-8.x|9.x|10.x|11.x-orange.svg?style=flat-square)](https://laravel.com)
 
-A powerful Laravel package for workflow management with states and transitions. Laravel Flow provides a comprehensive solution for building complex business workflows with state management and event-driven transitions.
+A powerful Laravel package for workflow management with states and transitions. Litepie Flow provides a comprehensive solution for building complex business workflows with state management and event-driven transitions, seamlessly integrated with the [Litepie Actions](https://github.com/litepie/actions) package.
 
 ## Features
 
-- **Workflow Management**: Define complex workflows with states and transitions
-- **State Management**: Track and manage entity states throughout their lifecycle
-- **Event System**: Built-in event handling for workflow transitions
-- **Action Integration**: Seamless integration with the [Litepie Actions](https://github.com/litepie/actions) package
-- **Database Logging**: Track workflow executions and transition history
-- **Laravel Integration**: Seamless integration with Laravel's ecosystem
+- 🔄 **Workflow Management**: Define complex workflows with states and transitions
+- 📊 **State Management**: Track and manage entity states throughout their lifecycle
+- ⚡ **Event System**: Built-in event handling for workflow transitions
+- 🎯 **Action Integration**: Seamless integration with the [Litepie Actions](https://github.com/litepie/actions) package
+- 📝 **Database Logging**: Track workflow executions and transition history
+- 🚀 **Laravel Integration**: Seamless integration with Laravel's ecosystem
+- 🔧 **Extensible**: Easy to extend and customize for your specific needs
 
 ## Installation
 
@@ -22,7 +25,9 @@ Install the package via Composer:
 composer require litepie/flow
 ```
 
-This will automatically install the required `litepie/actions` dependency.
+> **Note**: This will automatically install the required `litepie/actions` dependency.
+
+### Publish and Run Migrations
 
 Publish and run the migrations:
 
@@ -30,6 +35,8 @@ Publish and run the migrations:
 php artisan vendor:publish --tag="flow-migrations"
 php artisan migrate
 ```
+
+### Configuration (Optional)
 
 Optionally, publish the configuration file:
 
@@ -39,7 +46,9 @@ php artisan vendor:publish --tag="flow-config"
 
 ## Quick Start
 
-### 1. Create Actions (using litepie/actions)
+### 1. Create an Action
+
+First, create an action that will be executed during workflow transitions:
 
 ```php
 <?php
@@ -59,11 +68,11 @@ class ProcessPaymentAction extends BaseAction
     public function execute(array $context = []): ActionResult
     {
         $validated = $this->validateContext($context);
-
+        
         // Your payment processing logic here
         $result = $this->processPayment($validated);
-
-        return $result['success'] 
+        
+        return $result['success']
             ? $this->success($result, 'Payment processed successfully')
             : $this->failure($result['errors'], 'Payment processing failed');
     }
@@ -85,7 +94,9 @@ class ProcessPaymentAction extends BaseAction
 }
 ```
 
-### 2. Create a Workflow
+### 2. Define a Workflow
+
+Create a workflow class that defines your business process:
 
 ```php
 <?php
@@ -103,10 +114,10 @@ class OrderWorkflow
         $workflow = new Workflow('order_processing', 'Order Processing Workflow');
 
         // Define states
-        $pending = new State('pending', 'Pending', true);
+        $pending = new State('pending', 'Pending', true);        // Initial state
         $processing = new State('processing', 'Processing');
         $shipped = new State('shipped', 'Shipped');
-        $delivered = new State('delivered', 'Delivered', false, true);
+        $delivered = new State('delivered', 'Delivered', false, true); // Final state
 
         // Add states to workflow
         $workflow->addState($pending)
@@ -131,7 +142,9 @@ class OrderWorkflow
 }
 ```
 
-### 3. Use the HasWorkflow Trait
+### 3. Make Your Model Workflowable
+
+Implement the workflow interface in your Eloquent model:
 
 ```php
 <?php
@@ -162,6 +175,8 @@ class Order extends Model implements Workflowable
 
 ### 4. Register Your Workflow
 
+Register the workflow in a service provider:
+
 ```php
 <?php
 
@@ -180,7 +195,18 @@ class WorkflowServiceProvider extends ServiceProvider
 }
 ```
 
-### 5. Use the Workflow
+Don't forget to register your service provider in `config/app.php`:
+
+```php
+'providers' => [
+    // Other providers...
+    App\Providers\WorkflowServiceProvider::class,
+],
+```
+
+## Usage Examples
+
+### Basic Workflow Operations
 
 ```php
 // Create a new order
@@ -193,8 +219,9 @@ $order = Order::create([
 // Check available transitions
 $transitions = $order->getAvailableTransitions();
 
-// Transition to the next state
+// Check if a specific transition is possible
 if ($order->canTransitionTo('processing')) {
+    // Transition to the next state with context data
     $order->transitionTo('processing', [
         'amount' => $order->total,
         'payment_method' => 'credit_card',
@@ -205,28 +232,181 @@ if ($order->canTransitionTo('processing')) {
 // Get current state
 $currentState = $order->getCurrentState();
 echo $currentState->getLabel(); // "Processing"
+
+// Get workflow history
+$history = $order->getWorkflowHistory();
 ```
 
-## Dependencies
+### Advanced Usage
 
-This package depends on:
-- **[litepie/actions](https://github.com/litepie/actions)** - For action pattern implementation
+```php
+// Listen to workflow events
+Event::listen('workflow.order_processing.transition.process', function ($event) {
+    Log::info('Order transitioned to processing', [
+        'order_id' => $event->getSubject()->id,
+        'from' => $event->getFromState(),
+        'to' => $event->getToState()
+    ]);
+});
 
-## Documentation
+// Conditional transitions
+if ($order->getCurrentState()->getName() === 'pending' && $order->total > 100) {
+    $order->transitionTo('processing', ['expedite' => true]);
+}
 
-- [Workflows](docs/workflows.md) - Workflow management guide
-- [Integration](docs/integration.md) - Integration patterns and examples
+// Bulk state updates
+Order::whereIn('id', [1, 2, 3])
+     ->each(function ($order) {
+         if ($order->canTransitionTo('shipped')) {
+             $order->transitionTo('shipped');
+         }
+     });
+```
+
+## Configuration
+
+After publishing the config file, you can customize various aspects of the workflow system:
+
+```php
+return [
+    // Database table names
+    'tables' => [
+        'workflows' => 'workflows',
+        'workflow_states' => 'workflow_states',
+        'workflow_transitions' => 'workflow_transitions',
+        'workflow_logs' => 'workflow_logs',
+    ],
+
+    // Event handling
+    'events' => [
+        'enabled' => true,
+        'prefix' => 'workflow',
+    ],
+
+    // Logging configuration
+    'logging' => [
+        'enabled' => true,
+        'channel' => env('WORKFLOW_LOG_CHANNEL', 'default'),
+    ],
+
+    // Action configuration
+    'actions' => [
+        'namespace' => 'App\\Actions',
+        'timeout' => 300, // seconds
+    ],
+];
+```
+
+## Architecture
+
+### Core Components
+
+1. **Workflow**: Defines the entire business process
+2. **States**: Represent different stages in the workflow
+3. **Transitions**: Define how to move between states
+4. **Actions**: Execute business logic during transitions
+5. **Events**: Handle workflow lifecycle events
+
+### State Management
+
+States can be:
+- **Initial**: Starting point of the workflow
+- **Final**: End point of the workflow
+- **Intermediate**: States between initial and final
+
+### Action Integration
+
+Actions are powered by the [Litepie Actions](https://github.com/litepie/actions) package and provide:
+- Input validation
+- Result handling
+- Error management
+- Retry mechanisms
+
+## Events
+
+The package dispatches several events during workflow execution:
+
+- `workflow.{name}.guard.{transition}` - Before transition validation
+- `workflow.{name}.leave.{state}` - When leaving a state
+- `workflow.{name}.transition.{transition}` - During transition
+- `workflow.{name}.enter.{state}` - When entering a state
+- `workflow.{name}.entered.{state}` - After entering a state
+
+### Event Listeners
+
+```php
+// In EventServiceProvider
+protected $listen = [
+    'workflow.order_processing.enter.processing' => [
+        NotifyCustomerListener::class,
+    ],
+    'workflow.order_processing.transition.ship' => [
+        GenerateTrackingNumberListener::class,
+    ],
+];
+```
 
 ## Testing
+
+Run the tests with:
 
 ```bash
 composer test
 ```
 
+## Dependencies
+
+This package depends on:
+- [litepie/actions](https://github.com/litepie/actions) - For action pattern implementation
+- Laravel 8.x|9.x|10.x|11.x
+- PHP 8.0+
+
+## Documentation
+
+For more detailed documentation, please refer to:
+- [Workflows](docs/workflows.md) - Workflow management guide
+- [States & Transitions](docs/states-transitions.md) - State and transition documentation
+- [Actions](docs/actions.md) - Action development guide
+- [Events](docs/events.md) - Event system documentation
+- [Integration](docs/integration.md) - Integration patterns and examples
+
 ## Contributing
 
-Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
+
+### Development Setup
+
+1. Clone the repository
+2. Install dependencies: `composer install`
+3. Run tests: `composer test`
+4. Check code style: `composer cs-check`
+5. Fix code style: `composer cs-fix`
+
+## Security
+
+If you discover any security-related issues, please email the maintainers instead of using the issue tracker.
+
+## Changelog
+
+Please see [CHANGELOG.md](CHANGELOG.md) for more information about what has changed recently.
 
 ## License
 
 The MIT License (MIT). Please see [LICENSE.md](LICENSE.md) for more information.
+
+## Credits
+
+- [Litepie Team](https://github.com/Litepie)
+- [All Contributors](../../contributors)
+
+## Support
+
+If you find this package useful, please consider:
+- ⭐ Starring the repository
+- 🐛 Reporting bugs
+- 💡 Suggesting new features
+- 🔄 Contributing code improvements
+
+---
+
+**Litepie Flow** - Making workflow management in Laravel simple and powerful.
