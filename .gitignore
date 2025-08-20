@@ -1,0 +1,75 @@
+# Composer
+/vendor/
+composer.phar
+composer.lock
+
+# Testing
+/tests/coverage/
+.phpunit.result.cache
+.phpunit.cache
+phpunit.xml
+.coverage
+coverage.xml
+*.cover
+
+# Build artifacts
+/build/
+/dist/
+
+# IDE and Editor files
+/.idea/
+/.vscode/
+*.sublime-project
+*.sublime-workspace
+.project
+.buildpath
+.settings/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*~
+*.bak
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Code quality tools
+/.phpcs.cache
+/.php_cs.cache
+/.php-cs-fixer.cache
+.psalm/
+.phpstan/
+
+# Documentation build
+/docs/_build/
+/docs/html/
+/docs/latex/
+
+# Package development
+.env
+.env.local
+.env.testing
+auth.json
+
+# Node.js (if package uses any JS build tools)
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# Flow package specific
+/examples/temp/
+/examples/output/
+/database/database.sqlite
+/database/*.sqlite
+*.log
