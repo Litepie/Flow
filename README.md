@@ -11,6 +11,7 @@ A powerful Laravel package for workflow management with states and transitions. 
 
 - 🔄 **Workflow Management**: Define complex workflows with states and transitions
 - 📊 **State Management**: Track and manage entity states throughout their lifecycle
+- ⚙️ **State Machines**: Lightweight state management for individual model attributes
 - ⚡ **Event System**: Built-in event handling for workflow transitions
 - 🎯 **Action Integration**: Seamless integration with the [Litepie Actions](https://github.com/litepie/actions) package
 - 📝 **Database Logging**: Track workflow executions and transition history
@@ -45,6 +46,72 @@ php artisan vendor:publish --tag="flow-config"
 ```
 
 ## Quick Start
+
+### Option 1: Simple State Machine (Recommended for basic state tracking)
+
+For simple state tracking on model attributes, use state machines:
+
+```php
+<?php
+
+// 1. Create a State Machine
+namespace App\StateMachines;
+
+use Litepie\Flow\StateMachine\AbstractStateMachine;
+
+class OrderStatusStateMachine extends AbstractStateMachine
+{
+    public function transitions(): array
+    {
+        return [
+            'process' => ['from' => 'pending', 'to' => 'processing'],
+            'ship' => ['from' => 'processing', 'to' => 'shipped'],
+            'deliver' => ['from' => 'shipped', 'to' => 'delivered'],
+            'cancel' => ['from' => ['pending', 'processing'], 'to' => 'cancelled'],
+        ];
+    }
+
+    public function stateLabels(): array
+    {
+        return [
+            'pending' => 'Pending Payment',
+            'processing' => 'Being Processed',
+            'shipped' => 'Shipped',
+            'delivered' => 'Delivered',
+            'cancelled' => 'Cancelled',
+        ];
+    }
+}
+
+// 2. Add to your Model
+use Litepie\Flow\Traits\HasStateMachine;
+
+class Order extends Model
+{
+    use HasStateMachine;
+
+    protected $stateMachines = [
+        'status' => OrderStatusStateMachine::class,
+    ];
+}
+
+// 3. Use it
+$order = Order::create(['status' => 'pending']);
+
+// Check state
+if ($order->stateMachine('status')->is('pending')) {
+    // Change state
+    $order->status = 'processing';
+    $order->save();
+}
+
+// Get label
+echo $order->stateMachine('status')->getCurrentStateLabel(); // "Being Processed"
+```
+
+### Option 2: Complex Workflows (For business processes)
+
+For complex business processes, use workflows:
 
 ### 1. Create an Action
 
@@ -301,11 +368,26 @@ return [
 
 ### Core Components
 
-1. **Workflow**: Defines the entire business process
-2. **States**: Represent different stages in the workflow
-3. **Transitions**: Define how to move between states
-4. **Actions**: Execute business logic during transitions
-5. **Events**: Handle workflow lifecycle events
+1. **Workflows**: Define complex business processes with multiple participants
+2. **State Machines**: Handle simple state transitions for individual model attributes  
+3. **States**: Represent different stages in workflows and state machines
+4. **Transitions**: Define how to move between states
+5. **Actions**: Execute business logic during transitions
+6. **Events**: Handle workflow and state machine lifecycle events
+
+### When to Use What
+
+**Use Workflows for:**
+- Complex business processes (order approval, document review)
+- Multi-step workflows with multiple participants
+- Advanced transition logic with guards and actions
+- Process orchestration
+
+**Use State Machines for:**
+- Simple state tracking (order status, payment status)
+- Individual attribute state management
+- Multiple independent states on the same model
+- Lightweight state transitions
 
 ### State Management
 
@@ -364,11 +446,12 @@ This package depends on:
 ## Documentation
 
 For more detailed documentation, please refer to:
-- [Workflows](docs/workflows.md) - Workflow management guide
-- [States & Transitions](docs/states-transitions.md) - State and transition documentation
-- [Actions](docs/actions.md) - Action development guide
-- [Events](docs/events.md) - Event system documentation
-- [Integration](docs/integration.md) - Integration patterns and examples
+- 📊 **[State Machines](docs/state-machine.md)** - Simple state management for model attributes
+- 🔄 **[Workflows](docs/workflows.md)** - Complex workflow management guide
+- 🔄 **[States & Transitions](docs/states-transitions.md)** - State and transition documentation
+- ⚡ **[Actions](docs/actions.md)** - Action development guide
+- 📡 **[Events](docs/events.md)** - Event system documentation
+- 🔧 **[Integration](docs/integration.md)** - Integration patterns and examples
 
 ## Contributing
 
@@ -396,7 +479,7 @@ The MIT License (MIT). Please see [LICENSE.md](LICENSE.md) for more information.
 
 ## Credits
 
-- [Litepie Team](https://github.com/Litepie)
+- [Lavalite Team](https://github.com/Litepie)
 - [All Contributors](../../contributors)
 
 ## Support
@@ -409,4 +492,24 @@ If you find this package useful, please consider:
 
 ---
 
-**Litepie Flow** - Making workflow management in Laravel simple and powerful.
+## 🏢 About
+
+This package is part of the **Litepie** ecosystem, developed by **Renfos Technologies**. 
+
+### Organization Structure
+- **Vendor:** Litepie
+- **Framework:** Lavalite
+- **Company:** Renfos Technologies
+
+### Links & Resources
+- 🌐 **Website:** [https://lavalite.org](https://lavalite.org)
+- 📚 **Documentation:** [https://docs.lavalite.org](https://docs.lavalite.org)
+- 💼 **Company:** [https://renfos.com](https://renfos.com)
+- 📧 **Support:** [support@lavalite.org](mailto:support@lavalite.org)
+
+---
+
+<div align="center">
+  <p><strong>Built with ❤️ by Renfos Technologies</strong></p>
+  <p><em>Empowering developers with robust Laravel solutions</em></p>
+</div>
